@@ -1,94 +1,146 @@
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
 
+[RequireComponent(typeof(SphereCollider))]
 public class Neighborhood : MonoBehaviour
 {
     [Header("Set Dynamically")]
-    public List<Boid> neighbors;
-    private SphereCollider coll;
+    public List<Boid> neighbors = new List<Boid>();
 
-    void start()
-    {
-        neighbors = new List<Boid>();
-        coll = GetComponent<SphereCollider>();
-        coll.radius = Spawner.S.neighborDist / 2;
-    }
+    SphereCollider coll;
 
-    void Fixedupdate()
-    {
-        if (coll.radius != Spawner.S.neighborDist / 2)
-        {
-            coll.radius = Spawner.S.neighborDist / 2;
-        }
-    }
-
-    void OnTriggerEnter(Collider other)
-    {
-        Boid b = other.GetComponent<Boid>();
-        if (b != null)
-        {
-            if (neighbors.IndexOf(b) == -1)
-            {
-                neighbors.Add(b);
-            }
-        }
-    }
-
-    void OnTriggerExit(Collider other)
-    {
-        Boid b = other.GetComponent<Boid>();
-        if (b != null)
-        {
-            if (neighbors.IndexOf(b) != -1)
-            {
-                neighbors.Remove(b);
-            }
-        }
-    }
-    public Vector3 avgPos { get
-        { Vector3 avg = Vector3.zero;
-            if (neighbors.Count == 0) { return avg; }
-            for (int i = 0; i < neighbors.Count; i++) { avg += neighbors[i].pos; }
-            avg /= neighbors.Count;
-
-            return avg;
-        }
-    }
+    public Vector3 avgPos => GetAveragePosition(false);
+    public Vector3 avgClosePos => GetAveragePosition(true);
 
     public Vector3 avgVel
     {
         get
         {
-            Vector3 avg = Vector3.zero;
-            if (neighbors.Count == 0) { return avg; }
+            if (neighbors.Count == 0)
+            {
+                return Vector3.zero;
+            }
 
-            for (int i = 0; i < neighbors.Count; i++) { avg += neighbors[i].rigid.linearVelocity; }
-        
-        avg /= neighbors.Count;
-        return avg;
+            Vector3 avg = Vector3.zero;
+            int validCount = 0;
+
+            for (int i = neighbors.Count - 1; i >= 0; i--)
+            {
+                Boid boid = neighbors[i];
+                if (boid == null || boid.rigid == null)
+                {
+                    neighbors.RemoveAt(i);
+                    continue;
+                }
+
+                avg += boid.rigid.linearVelocity;
+                validCount++;
+            }
+
+            return validCount == 0 ? Vector3.zero : avg / validCount;
         }
     }
 
-
-    public Vector3 avgClosePos
+    void Awake()
     {
-        get
+        coll = GetComponent<SphereCollider>();
+        neighbors ??= new List<Boid>();
+        ConfigureCollider();
+    }
+
+    void OnEnable()
+    {
+        ConfigureCollider();
+    }
+
+    void OnDisable()
+    {
+        neighbors.Clear();
+    }
+
+    void FixedUpdate()
+    {
+        ConfigureCollider();
+    }
+
+    void OnValidate()
+    {
+        if (coll == null)
         {
-            Vector3 avg = Vector3.zero;
-            Vector3 delta;
-            int nearCount = 0;
-            for (int i = 0; i < neighbors.Count; i++)
+            coll = GetComponent<SphereCollider>();
+        }
+
+        if (coll != null)
+        {
+            ConfigureCollider();
+        }
+    }
+
+    void OnTriggerEnter(Collider other)
+    {
+        Boid boid = other.GetComponent<Boid>();
+        if (boid != null && boid != GetComponent<Boid>() && !neighbors.Contains(boid))
+        {
+            neighbors.Add(boid);
+        }
+    }
+
+    void OnTriggerExit(Collider other)
+    {
+        Boid boid = other.GetComponent<Boid>();
+        if (boid != null)
+        {
+            neighbors.Remove(boid);
+        }
+    }
+
+    void ConfigureCollider()
+    {
+        if (coll == null)
+        {
+            return;
+        }
+
+        coll.isTrigger = true;
+
+        if (Spawner.S != null)
+        {
+            coll.radius = Mathf.Max(0.01f, Spawner.S.neighborDist);
+        }
+    }
+
+    Vector3 GetAveragePosition(bool onlyCloseNeighbors)
+    {
+        if (neighbors.Count == 0 || Spawner.S == null)
+        {
+            return Vector3.zero;
+        }
+
+        Vector3 avg = Vector3.zero;
+        int validCount = 0;
+
+        for (int i = neighbors.Count - 1; i >= 0; i--)
+        {
+            Boid boid = neighbors[i];
+            if (boid == null)
             {
-                delta = neighbors[i].pos - transform.position;
-                if (delta.magnitude <= Spawner.S.collDist)
+                neighbors.RemoveAt(i);
+                continue;
+            }
+
+            if (onlyCloseNeighbors)
+            {
+                float distance = Vector3.Distance(boid.pos, transform.position);
+                if (distance > Spawner.S.collDist)
                 {
-                    avg += neighbors[i].pos;
-                    nearCount++;
+                    continue;
                 }
             }
-            if (nearCount == 0) { return avg; }
-            avg /= nearCount;
-            return avg;
+
+            avg += boid.pos;
+            validCount++;
         }
+
+        return validCount == 0 ? Vector3.zero : avg / validCount;
     }
 }
